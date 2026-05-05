@@ -352,12 +352,6 @@ online_drafter:
   # HuggingFace model path or name for the EAGLE3 draft model.
   draft_model_path: "AngelSlim/Qwen3-1.7B_eagle3"
 
-  # Hidden size of the target model (e.g. 2048 for Qwen3-1.7B).
-  target_hidden_size: 2048
-
-  # Number of transformer layers in the target model.
-  num_target_layers: 28
-
   # Learning rate for the AdamW drafter optimizer.
   lr: 1e-4
 

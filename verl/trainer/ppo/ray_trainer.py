@@ -1193,10 +1193,10 @@ class RayPPOTrainer:
                 "training requires the vLLM rollout to be initialised first."
             )
 
+        target_model_path = self.config.actor_rollout_ref.model.path
         self.online_drafter_worker = RemoteWorker.remote(
             draft_model_path=od_cfg.draft_model_path,
-            target_hidden_size=od_cfg.target_hidden_size,
-            num_target_layers=od_cfg.num_target_layers,
+            target_model_path=target_model_path,
             vllm_engine=server_handles,
             config=drafter_cfg,
             device=od_cfg.get("device", "cuda:0"),

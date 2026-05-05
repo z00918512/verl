@@ -115,10 +115,6 @@ REF=(
 ONLINE_DRAFTER=(
     online_drafter.enable=True
     "online_drafter.draft_model_path=${EAGLE3_MODEL_PATH}"
-    # target_hidden_size = Qwen3-1.7B hidden dim
-    online_drafter.target_hidden_size=2048
-    # Qwen3-1.7B has 28 transformer layers
-    online_drafter.num_target_layers=28
     online_drafter.lr=${drafter_lr}
     online_drafter.update_interval_rl_steps=${drafter_update_interval}
     online_drafter.num_steps_per_update=${drafter_num_steps}

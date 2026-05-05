@@ -90,8 +90,7 @@ class OnlineDrafterWorker:
     def __init__(
         self,
         draft_model_path: str,
-        target_hidden_size: int,
-        num_target_layers: int,
+        target_model_path: str,
         vllm_engine: Any,  # AsyncLLM, list of Ray actor handles, or single actor handle
         config: OnlineDrafterConfig | None = None,
         device: str = "cuda:0",
@@ -117,15 +116,15 @@ class OnlineDrafterWorker:
 
         self.trainer = EagleOnlineDrafterTrainer.from_pretrained(
             draft_model_name_or_path=draft_model_path,
-            target_hidden_size=target_hidden_size,
-            num_target_layers=num_target_layers,
+            target_model_name_or_path=target_model_path,
             device=device,
             config=train_cfg,
             torch_dtype=self.config.torch_dtype,
         )
         logger.info(
-            "OnlineDrafterWorker initialised: model=%s  device=%s",
+            "OnlineDrafterWorker initialised: draft=%s  target=%s  device=%s",
             draft_model_path,
+            target_model_path,
             device,
         )
 
