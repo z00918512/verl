@@ -1177,7 +1177,16 @@ class RayPPOTrainer:
             pause_engine_during_update=od_cfg.get("pause_engine_during_update", False),
         )
 
-        RemoteWorker = ray.remote(OnlineDrafterWorker)
+        # The drafter runs as a CUDA-using Ray actor sharing a GPU with the
+        # rollout/actor workers. Ray sets CUDA_VISIBLE_DEVICES="" for actors
+        # without num_gpus, so we must request a fractional allocation to get
+        # access to a device. Configurable via online_drafter.num_gpus.
+        device_str = str(od_cfg.get("device", "cuda:0"))
+        if "cuda" in device_str or "gpu" in device_str:
+            num_gpus = float(od_cfg.get("num_gpus", 0.1))
+            RemoteWorker = ray.remote(num_gpus=num_gpus)(OnlineDrafterWorker)
+        else:
+            RemoteWorker = ray.remote(OnlineDrafterWorker)
         # Collect the per-replica server actor handles. Each handle is a Ray
         # actor (vLLMHttpServer) on which we can call .update_draft_weights.remote(sd).
         server_handles = []
