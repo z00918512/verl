@@ -622,6 +622,17 @@ class vLLMHttpServer:
             return
         await self.engine.update_draft_weights(state_dict)
 
+    async def snapshot_spec_decode_stats(self, reset: bool = True) -> dict:
+        """Pull aggregated spec-decode acceptance stats from the engine.
+
+        Returns ``{}`` if this server is not the master node (node_rank != 0)
+        or if the underlying engine has no draft observations since the last
+        snapshot. Used by the VeRL trainer to log per-step acceptance metrics.
+        """
+        if self.node_rank != 0:
+            return {}
+        return await self.engine.snapshot_spec_decode_stats(reset=reset)
+
     async def wait_for_requests_to_drain(self):
         await self.engine.wait_for_requests_to_drain()
 

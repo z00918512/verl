@@ -1210,11 +1210,90 @@ class RayPPOTrainer:
             config=drafter_cfg,
             device=od_cfg.get("device", "cuda:0"),
         )
+        # Used by _collect_online_drafter_metrics to read the previous step's
+        # CE loss without blocking the current step.
+        self._pending_drafter_update = None
+        self._drafter_server_handles = list(server_handles)
         print(
             f"[OnlineDrafter] worker initialised: "
             f"model={od_cfg.draft_model_path}  "
             f"update_every={drafter_cfg.update_interval_rl_steps} steps"
         )
+
+    def _collect_online_drafter_metrics(self) -> dict[str, float]:
+        """Pull drafter CE loss + vLLM spec-decode acceptance stats per RL step.
+
+        Drafter loss is read from the previous step's ``maybe_update`` future
+        so we never block the current step on a synchronous ray.get. Spec-decode
+        acceptance is fetched from each vLLM server replica via
+        ``snapshot_spec_decode_stats`` and aggregated.
+
+        Returns a flat metrics dict; missing pieces simply produce no keys.
+        """
+        import ray
+
+        out: dict[str, float] = {}
+
+        # ---- Drafter CE loss (from previous step's maybe_update) ----
+        prev_future = getattr(self, "_pending_drafter_update", None)
+        if prev_future is not None:
+            try:
+                loss = ray.get(prev_future)
+            except Exception as e:  # noqa: BLE001
+                print(f"[OnlineDrafter] failed to read drafter loss: {e}")
+                loss = None
+            self._pending_drafter_update = None
+            if loss is not None:
+                out["drafter/ce_loss"] = float(loss)
+
+        # ---- Spec-decode acceptance from vLLM ----
+        handles = getattr(self, "_drafter_server_handles", None) or []
+        if handles:
+            futures = [
+                h.snapshot_spec_decode_stats.remote(reset=True) for h in handles
+            ]
+            try:
+                snaps = ray.get(futures)
+            except Exception as e:  # noqa: BLE001
+                print(f"[OnlineDrafter] failed to read spec-decode stats: {e}")
+                snaps = []
+
+            agg_drafts = 0
+            agg_draft_tokens = 0
+            agg_accepted = 0
+            per_pos_sum: list[int] = []
+            for snap in snaps:
+                if not snap:
+                    continue
+                agg_drafts += int(snap.get("num_drafts", 0))
+                agg_draft_tokens += int(snap.get("num_draft_tokens", 0))
+                agg_accepted += int(snap.get("num_accepted_tokens", 0))
+                pp = snap.get("per_position_accepted_counts") or []
+                if not per_pos_sum:
+                    per_pos_sum = list(pp)
+                else:
+                    for i, v in enumerate(pp):
+                        if i < len(per_pos_sum):
+                            per_pos_sum[i] += int(v)
+                        else:
+                            per_pos_sum.append(int(v))
+
+            if agg_drafts > 0:
+                out["spec_decode/mean_acceptance_length"] = (
+                    1.0 + agg_accepted / agg_drafts
+                )
+                out["spec_decode/draft_acceptance_rate"] = (
+                    agg_accepted / agg_draft_tokens if agg_draft_tokens > 0 else 0.0
+                )
+                out["spec_decode/num_drafts"] = float(agg_drafts)
+                out["spec_decode/num_draft_tokens"] = float(agg_draft_tokens)
+                out["spec_decode/num_accepted_tokens"] = float(agg_accepted)
+                for i, count in enumerate(per_pos_sum):
+                    out[f"spec_decode/per_position_acceptance_rate/pos_{i}"] = (
+                        count / agg_drafts
+                    )
+
+        return out
 
     def _compute_ref_log_prob(self, batch: DataProto) -> DataProto:
         # step 1: convert dataproto to tensordict.
@@ -1277,7 +1356,11 @@ class RayPPOTrainer:
                     input_ids=batch_td["input_ids"].values(),
                     rewards=torch.tensor(reward_scalar),
                 )
-                self.online_drafter_worker.maybe_update.remote(self.global_steps)
+                # Capture the maybe_update future so we can read the CE loss
+                # next step without blocking the current one.
+                self._pending_drafter_update = self.online_drafter_worker.maybe_update.remote(
+                    self.global_steps
+                )
 
         # gather output
         entropy = tu.get(output, "entropy")
@@ -1740,6 +1823,12 @@ class RayPPOTrainer:
                 gradient_norm = metrics.get("actor/grad_norm", None)
                 metrics.update(compute_variance_proxy_metrics(batch=batch, gradient_norm=gradient_norm))
                 # Note: mismatch metrics (KL, PPL, etc.) are collected at line 1179 after advantage computation
+
+                # Drafter CE loss + vLLM spec-decode acceptance metrics.
+                # Both are best-effort: a missing drafter or zero-spec-decode
+                # rollout simply skips them.
+                if self.online_drafter_worker is not None:
+                    metrics.update(self._collect_online_drafter_metrics())
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
