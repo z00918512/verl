@@ -441,5 +441,15 @@ quantization_config_file: null
 # MTP configuration, reuse model configuration
 mtp: ${oc.select:actor_rollout_ref.model.mtp, null}
 
+# EAGLE3 speculative decoding configuration for rollout.
+# Enable this to run EAGLE3 spec-decode in vLLM during generation.
+eagle3:
+  _target_: verl.workers.config.Eagle3Config
+  enable: false
+  # HuggingFace model path or Hub name for the EAGLE3 draft model.
+  model: ""
+  # Number of draft tokens proposed per step.
+  num_speculative_tokens: 3
+
 # QAT configuration (inherited from actor's engine config)
 qat: ${oc.select:actor_rollout_ref.actor.fsdp_config.qat,${oc.select:actor_rollout_ref.actor.megatron.qat,null}}

@@ -339,3 +339,42 @@ ray_kwargs:
 
   # Path to save Ray timeline JSON for performance profiling
   timeline_json_file: null
+
+
+# Online drafter training for speculative decoding in RL pipelines.
+# When enable=true, the PPO trainer captures EAGLE3 aux hidden states from
+# the actor's compute_log_prob forward pass and trains the draft model online.
+online_drafter:
+
+  # Set to true to activate online drafter training.
+  enable: false
+
+  # HuggingFace model path or name for the EAGLE3 draft model.
+  draft_model_path: "AngelSlim/Qwen3-1.7B_eagle3"
+
+  # Hidden size of the target model (e.g. 2048 for Qwen3-1.7B).
+  target_hidden_size: 2048
+
+  # Number of transformer layers in the target model.
+  num_target_layers: 28
+
+  # Learning rate for the AdamW drafter optimizer.
+  lr: 1e-4
+
+  # Run a drafter weight update every N RL steps (1 = every step).
+  update_interval_rl_steps: 1
+
+  # Gradient steps per update call.
+  num_steps_per_update: 5
+
+  # Replay buffer capacity in tokens.
+  replay_buffer_max_tokens: 32768
+
+  # Reward-weighting coefficient for CE loss (0 = plain CE, >0 = reward-weighted CE as in ReSpec).
+  reward_weight: 0.0
+
+  # Whether to pause vLLM generation before pushing new weights.
+  pause_engine_during_update: false
+
+  # CUDA device for the drafter training process.
+  device: "cuda:0"

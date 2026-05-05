@@ -32,7 +32,26 @@ __all__ = [
     "RolloutConfig",
     "CheckpointEngineConfig",
     "SkipConfig",
+    "Eagle3Config",
 ]
+
+
+@dataclass
+class Eagle3Config(BaseConfig):
+    """Speculative decoding configuration for EAGLE3 draft models during rollout.
+
+    When enable=True the vLLM engine is started with
+    speculative_config={"method": "eagle3", "model": ..., "num_speculative_tokens": ...}
+    so that EAGLE3 spec-decode is active during generation.
+    """
+
+    enable: bool = False
+
+    # HuggingFace model path or Hub name for the EAGLE3 draft model.
+    model: str = ""
+
+    # Number of draft tokens proposed per step.
+    num_speculative_tokens: int = 3
 
 
 @dataclass
@@ -274,6 +293,8 @@ class RolloutConfig(BaseConfig):
     enable_sleep_mode: bool = True
 
     mtp: MtpConfig = field(default_factory=MtpConfig)
+
+    eagle3: Eagle3Config = field(default_factory=Eagle3Config)
 
     qat: Optional[dict] = None
 

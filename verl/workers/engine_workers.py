@@ -642,6 +642,24 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         return output.cpu() if output is not None else None
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
+    @DistProfiler.annotate(color="blue", role="actor_compute_log_prob_with_hidden_states")
+    @_with_routing_replay_flag(enabled=True)
+    def compute_log_prob_with_eagle3_hidden_states(self, data: TensorDict) -> TensorDict:
+        """Like compute_log_prob but also captures EAGLE3 aux hidden states.
+
+        Sets ``collect_hidden_states=True`` in the batch metadata so the FSDP
+        engine calls the model with ``output_hidden_states=True`` and stores the
+        concatenated early/mid/late-layer activations under the key
+        ``eagle3_aux_hidden_states`` in the returned TensorDict.
+
+        Used by online drafter training: the caller feeds these hidden states to
+        ``OnlineDrafterWorker.add_rollout_data()``.
+        """
+        tu.assign_non_tensor(data, collect_hidden_states=True)
+        output = self.actor.infer_batch(data)
+        return output.cpu() if output is not None else None
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
     @_with_routing_replay_flag(enabled=True)
     def update_actor(self, data: TensorDict) -> TensorDict:

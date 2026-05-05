@@ -391,6 +391,13 @@ class RayPPOTrainer:
         self.total_training_steps = total_training_steps
         print(f"Total training steps: {self.total_training_steps}")
 
+        # Online drafter training (optional).  Activated when
+        # config.online_drafter.enable is True.
+        self.online_drafter_worker = None
+        od_cfg = OmegaConf.select(self.config, "online_drafter", default=None)
+        if od_cfg is not None and od_cfg.get("enable", False):
+            self._init_online_drafter_worker(od_cfg)
+
         try:
             OmegaConf.set_struct(self.config, True)
             with open_dict(self.config):
@@ -1143,6 +1150,53 @@ class RayPPOTrainer:
         values = DataProto.from_tensordict(values)
         return values
 
+    def _init_online_drafter_worker(self, od_cfg) -> None:
+        """Initialise the online drafter Ray actor from config."""
+        try:
+            import ray
+            from verl.workers.rollout.vllm_rollout.online_drafter_trainer import (
+                OnlineDrafterConfig,
+                OnlineDrafterWorker,
+            )
+        except ImportError as e:
+            raise ImportError(
+                "Online drafter training requires the vllm_rollout package. "
+                f"Original error: {e}"
+            )
+
+        drafter_cfg = OnlineDrafterConfig(
+            lr=od_cfg.get("lr", 1e-4),
+            update_interval_rl_steps=od_cfg.get("update_interval_rl_steps", 1),
+            num_steps_per_update=od_cfg.get("num_steps_per_update", 5),
+            replay_buffer_max_tokens=od_cfg.get("replay_buffer_max_tokens", 32768),
+            reward_weight=od_cfg.get("reward_weight", 0.0),
+            pause_engine_during_update=od_cfg.get("pause_engine_during_update", False),
+        )
+
+        RemoteWorker = ray.remote(OnlineDrafterWorker)
+        # Obtain the vLLM engine handle from the rollout worker group.
+        vllm_engine = getattr(self.async_rollout_manager, "engine", None)
+        if vllm_engine is None:
+            raise RuntimeError(
+                "Could not locate a vLLM AsyncLLM engine handle on "
+                "self.async_rollout_manager. Make sure the rollout worker "
+                "group exposes an 'engine' attribute."
+            )
+
+        self.online_drafter_worker = RemoteWorker.remote(
+            draft_model_path=od_cfg.draft_model_path,
+            target_hidden_size=od_cfg.target_hidden_size,
+            num_target_layers=od_cfg.num_target_layers,
+            vllm_engine=vllm_engine,
+            config=drafter_cfg,
+            device=od_cfg.get("device", "cuda:0"),
+        )
+        print(
+            f"[OnlineDrafter] worker initialised: "
+            f"model={od_cfg.draft_model_path}  "
+            f"update_every={drafter_cfg.update_interval_rl_steps} steps"
+        )
+
     def _compute_ref_log_prob(self, batch: DataProto) -> DataProto:
         # step 1: convert dataproto to tensordict.
         batch_td = batch.to_tensordict()
@@ -1181,7 +1235,31 @@ class RayPPOTrainer:
             calculate_sum_pi_squared=calculate_sum_pi_squared,
             compute_loss=False,
         )
-        output = self.actor_rollout_wg.compute_log_prob(batch_td)
+
+        collect_for_drafter = self.online_drafter_worker is not None
+        if collect_for_drafter:
+            tu.assign_non_tensor(batch_td, collect_hidden_states=True)
+            output = self.actor_rollout_wg.compute_log_prob_with_eagle3_hidden_states(batch_td)
+        else:
+            output = self.actor_rollout_wg.compute_log_prob(batch_td)
+        # Feed hidden states to the online drafter worker (non-blocking Ray call).
+        if collect_for_drafter and output is not None:
+            aux_hs = tu.get(output, "eagle3_aux_hidden_states", default=None)
+            if aux_hs is not None:
+                # Derive a scalar reward weight: mean of per-token scores for
+                # the batch (or 1.0 if no reward signal is available yet).
+                rewards_tensor = batch.batch.get("reward_token_level_scores", None)
+                if rewards_tensor is not None:
+                    reward_scalar = float(rewards_tensor.float().mean().item())
+                else:
+                    reward_scalar = 1.0
+                self.online_drafter_worker.add_rollout_data.remote(
+                    aux_hidden_states=aux_hs.values(),
+                    input_ids=batch_td["input_ids"].values(),
+                    rewards=torch.tensor(reward_scalar),
+                )
+                self.online_drafter_worker.maybe_update.remote(self.global_steps)
+
         # gather output
         entropy = tu.get(output, "entropy")
         log_probs = tu.get(output, "log_probs")

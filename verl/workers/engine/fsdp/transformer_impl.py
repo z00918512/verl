@@ -1041,6 +1041,13 @@ class FSDPEngineWithLMHead(FSDPEngine):
             extra_args["temperature"] = temperature_item
             extra_args["return_dict"] = True
 
+        collect_hidden_states = tu.get_non_tensor_data(
+            data=micro_batch, key="collect_hidden_states", default=False
+        )
+        if collect_hidden_states:
+            extra_args["output_hidden_states"] = True
+        output_args["collect_hidden_states"] = collect_hidden_states
+
         model_inputs.update(multi_modal_inputs)
         model_inputs.update(extra_args)
 
@@ -1199,6 +1206,33 @@ class FSDPEngineWithLMHead(FSDPEngine):
             model_output["entropy"] = entropy
         if calculate_sum_pi_squared:
             model_output["sum_pi_squared"] = sum_pi_squared
+
+        # Eagle3 auxiliary hidden-state extraction.  Only supported in the
+        # remove-padding (packed) path: in the padded path each hidden-state
+        # tensor has shape [B, max_seq_len, H] and cannot be trivially packed
+        # without unpadding logic.  The default VeRL config uses remove-padding.
+        if (
+            output_args.get("collect_hidden_states", False)
+            and use_remove_padding
+            and getattr(output, "hidden_states", None) is not None
+        ):
+            # output.hidden_states: tuple of (num_layers+1) tensors.
+            # Index 0  = embedding output.
+            # Index k  = output of transformer layer k-1 (0-indexed).
+            # Eagle3 default aux layers (from get_eagle3_default_aux_hidden_state_layers):
+            #   (2, n//2, n-3)  ==  after transformer layers 1, n//2-1, n-4.
+            hs_all = output.hidden_states
+            n = len(hs_all) - 1  # == num_hidden_layers
+            h = torch.cat(
+                [
+                    hs_all[2].squeeze(0),          # transformer layer 1   (early)
+                    hs_all[n // 2].squeeze(0),     # transformer layer n//2-1 (mid)
+                    hs_all[n - 3].squeeze(0),      # transformer layer n-4 (late)
+                ],
+                dim=-1,
+            )  # [total_nnz, 3 * hidden_size]
+            cu_seqlens = input_ids.offsets()
+            model_output["eagle3_aux_hidden_states"] = torch.nested.nested_tensor_from_jagged(h, cu_seqlens)
 
         return model_output
 

@@ -290,6 +290,18 @@ class vLLMHttpServer:
             }
             args["speculative_config"] = speculative_config
 
+        eagle3_cfg = getattr(self.config, "eagle3", None)
+        if eagle3_cfg is not None and eagle3_cfg.enable:
+            if not eagle3_cfg.model:
+                raise ValueError(
+                    "actor_rollout_ref.rollout.eagle3.model must be set when eagle3.enable=True"
+                )
+            args["speculative_config"] = {
+                "method": "eagle3",
+                "model": eagle3_cfg.model,
+                "num_speculative_tokens": eagle3_cfg.num_speculative_tokens,
+            }
+
         if self.config.data_parallel_size > 1:
             assert self.gpus_per_node % self.config.tensor_model_parallel_size == 0, (
                 "gpus_per_node should be divisible by tensor_model_parallel_size"
