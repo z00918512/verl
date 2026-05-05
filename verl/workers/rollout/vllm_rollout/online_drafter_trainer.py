@@ -92,7 +92,7 @@ class OnlineDrafterWorker:
         draft_model_path: str,
         target_hidden_size: int,
         num_target_layers: int,
-        vllm_engine: Any,  # AsyncLLM or a handle to it
+        vllm_engine: Any,  # AsyncLLM, list of Ray actor handles, or single actor handle
         config: OnlineDrafterConfig | None = None,
         device: str = "cuda:0",
     ) -> None:
@@ -206,7 +206,31 @@ class OnlineDrafterWorker:
     # ------------------------------------------------------------------
 
     def _push_weights(self, state_dict: dict[str, torch.Tensor]) -> None:
-        """Push updated drafter parameters to the vLLM inference engine."""
+        """Push updated drafter parameters to the vLLM inference engine.
+
+        ``self.engine`` may be:
+          - a list of Ray actor handles (vLLMHttpServer per replica) — fan out;
+          - a single Ray actor handle — call directly via ``.remote()``;
+          - an in-process AsyncLLM-like object — call ``await update_draft_weights``.
+        """
+        # Case 1: list of Ray actor handles (the production path).
+        if isinstance(self.engine, (list, tuple)):
+            import ray
+
+            futures = [h.update_draft_weights.remote(state_dict) for h in self.engine]
+            ray.get(futures)
+            return
+
+        # Case 2: single Ray actor handle.
+        if hasattr(self.engine, "update_draft_weights") and hasattr(
+            self.engine.update_draft_weights, "remote"
+        ):
+            import ray
+
+            ray.get(self.engine.update_draft_weights.remote(state_dict))
+            return
+
+        # Case 3: in-process AsyncLLM (used by unit tests).
         import asyncio
 
         async def _do_push() -> None:
@@ -218,13 +242,9 @@ class OnlineDrafterWorker:
                 if self.config.pause_engine_during_update:
                     await self.engine.resume_generation()
 
-        # If an event loop is already running (Ray async actor), use it;
-        # otherwise create a temporary one.
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                import concurrent.futures
-
                 fut = asyncio.run_coroutine_threadsafe(_do_push(), loop)
                 fut.result(timeout=60)
             else:

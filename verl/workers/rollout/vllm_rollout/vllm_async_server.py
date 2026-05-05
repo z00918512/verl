@@ -612,6 +612,16 @@ class vLLMHttpServer:
         """Set the global steps of the model weights."""
         self.global_steps = global_steps
 
+    async def update_draft_weights(self, state_dict: dict) -> None:
+        """Hot-swap EAGLE3 draft model weights into the running vLLM engine.
+
+        Used by the online drafter trainer to push freshly-trained draft
+        parameters back into the rollout without restarting the engine.
+        """
+        if self.node_rank != 0:
+            return
+        await self.engine.update_draft_weights(state_dict)
+
     async def wait_for_requests_to_drain(self):
         await self.engine.wait_for_requests_to_drain()
 

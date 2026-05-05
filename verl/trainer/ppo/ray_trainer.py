@@ -392,11 +392,9 @@ class RayPPOTrainer:
         print(f"Total training steps: {self.total_training_steps}")
 
         # Online drafter training (optional).  Activated when
-        # config.online_drafter.enable is True.
+        # config.online_drafter.enable is True.  Actual worker creation is
+        # deferred to init_workers() so that self.async_rollout_manager exists.
         self.online_drafter_worker = None
-        od_cfg = OmegaConf.select(self.config, "online_drafter", default=None)
-        if od_cfg is not None and od_cfg.get("enable", False):
-            self._init_online_drafter_worker(od_cfg)
 
         try:
             OmegaConf.set_struct(self.config, True)
@@ -892,6 +890,12 @@ class RayPPOTrainer:
         # sleep all replicas to load checkpoint
         self.checkpoint_manager.sleep_replicas()
 
+        # Online drafter worker (optional). Deferred from __init__ until here
+        # because it needs the async_rollout_manager / engine handle.
+        od_cfg = OmegaConf.select(self.config, "online_drafter", default=None)
+        if od_cfg is not None and od_cfg.get("enable", False):
+            self._init_online_drafter_worker(od_cfg)
+
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
 
@@ -1174,20 +1178,26 @@ class RayPPOTrainer:
         )
 
         RemoteWorker = ray.remote(OnlineDrafterWorker)
-        # Obtain the vLLM engine handle from the rollout worker group.
-        vllm_engine = getattr(self.async_rollout_manager, "engine", None)
-        if vllm_engine is None:
+        # Collect the per-replica server actor handles. Each handle is a Ray
+        # actor (vLLMHttpServer) on which we can call .update_draft_weights.remote(sd).
+        server_handles = []
+        replicas = getattr(self.llm_server_manager, "rollout_replicas", None) or []
+        for replica in replicas:
+            handle = getattr(replica, "_server_handle", None)
+            if handle is not None:
+                server_handles.append(handle)
+        if not server_handles:
             raise RuntimeError(
-                "Could not locate a vLLM AsyncLLM engine handle on "
-                "self.async_rollout_manager. Make sure the rollout worker "
-                "group exposes an 'engine' attribute."
+                "Could not locate any vLLM server handles on "
+                "self.llm_server_manager.rollout_replicas. Online drafter "
+                "training requires the vLLM rollout to be initialised first."
             )
 
         self.online_drafter_worker = RemoteWorker.remote(
             draft_model_path=od_cfg.draft_model_path,
             target_hidden_size=od_cfg.target_hidden_size,
             num_target_layers=od_cfg.num_target_layers,
-            vllm_engine=vllm_engine,
+            vllm_engine=server_handles,
             config=drafter_cfg,
             device=od_cfg.get("device", "cuda:0"),
         )
