@@ -20,6 +20,9 @@
 
 set -xeuo pipefail
 
+HOME="/home/ubuntu/z00918512"
+EAGLE3_ENABLE=${EAGLE3_ENABLE:-True}
+ONLINE_DRAFTER_ENABLE=${ONLINE_DRAFTER_ENABLE:-True}
 ########################### user-adjustable ###################################
 MODEL_PATH=${MODEL_PATH:-"$HOME/models/Qwen3-1.7B"}
 EAGLE3_MODEL_PATH=${EAGLE3_MODEL_PATH:-"$HOME/models/Qwen3-1.7B_eagle3"}
@@ -62,8 +65,11 @@ EXPERIMENT_NAME=${EXPERIMENT_NAME:-qwen3_1.7b_grpo_eagle3_online_drafter_$(date 
 DATA=(
     algorithm.adv_estimator=grpo
     algorithm.use_kl_in_reward=False
-    "data.train_files=['$HOME/data/gsm8k/train.parquet', '$HOME/data/math/train.parquet']"
-    "data.val_files=['$HOME/data/gsm8k/test.parquet', '$HOME/data/math/test.parquet']"
+    # "data.train_files=['$HOME/data/gsm8k/train.parquet', '$HOME/data/math/train.parquet']"
+    "data.train_files=['$HOME/data/math/train.parquet']"
+    "data.val_files=['$HOME/data/math/test.parquet']"
+
+    # "data.val_files=['$HOME/data/gsm8k/test.parquet', '$HOME/data/math/test.parquet']"
     data.train_batch_size=${train_batch_size}
     data.max_prompt_length=${max_prompt_length}
     data.max_response_length=${max_response_length}
@@ -98,7 +104,7 @@ ROLLOUT=(
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${ppo_max_token_len_per_gpu}
     # EAGLE3 spec-decode config for vLLM rollout
-    actor_rollout_ref.rollout.eagle3.enable=True
+    actor_rollout_ref.rollout.eagle3.enable=${EAGLE3_ENABLE}
     "actor_rollout_ref.rollout.eagle3.model=${EAGLE3_MODEL_PATH}"
     actor_rollout_ref.rollout.eagle3.num_speculative_tokens=${eagle3_num_spec_tokens}
 )
@@ -113,7 +119,7 @@ REF=(
 # The trainer captures aux hidden states from the actor's compute_log_prob pass
 # and runs CE distillation, then hot-swaps updated weights into vLLM.
 ONLINE_DRAFTER=(
-    online_drafter.enable=True
+    online_drafter.enable=${ONLINE_DRAFTER_ENABLE}
     "online_drafter.draft_model_path=${EAGLE3_MODEL_PATH}"
     online_drafter.lr=${drafter_lr}
     online_drafter.update_interval_rl_steps=${drafter_update_interval}
@@ -125,7 +131,7 @@ ONLINE_DRAFTER=(
 
 TRAINER=(
     trainer.balance_batch=True
-    "trainer.logger=['console','wandb']"
+    "trainer.logger=['console']"
     trainer.project_name=${PROJECT_NAME}
     trainer.experiment_name=${EXPERIMENT_NAME}
     trainer.n_gpus_per_node=${NGPUS_PER_NODE}
