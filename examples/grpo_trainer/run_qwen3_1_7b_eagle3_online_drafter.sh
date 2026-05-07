@@ -59,7 +59,23 @@ save_freq=${SAVE_FREQ:-20}
 test_freq=${TEST_FREQ:-5}
 
 PROJECT_NAME=${PROJECT_NAME:-verl_grpo_qwen3_eagle3}
-EXPERIMENT_NAME=${EXPERIMENT_NAME:-qwen3_1.7b_grpo_eagle3_online_drafter_$(date +%Y%m%d_%H%M)}
+
+# Short tag identifying which of the three comparison setups this run is:
+#   vanilla = no spec-decode, no drafter training (pure RL baseline)
+#   frozen  = EAGLE3 spec-decode on, drafter weights frozen
+#   online  = EAGLE3 spec-decode on + online drafter training
+#   custom  = anything else (e.g. for ablations)
+case "${EAGLE3_ENABLE}/${ONLINE_DRAFTER_ENABLE}" in
+    False/False) RUN_TAG=vanilla ;;
+    True/False)  RUN_TAG=frozen  ;;
+    True/True)   RUN_TAG=online  ;;
+    *)           RUN_TAG=custom  ;;
+esac
+EXPERIMENT_NAME=${EXPERIMENT_NAME:-qwen3_1.7b_${RUN_TAG}_$(date +%Y%m%d_%H%M)}
+
+LOGS_DIR=${LOGS_DIR:-"$HOME/logs"}
+LOG_FILE="${LOGS_DIR}/${EXPERIMENT_NAME}.log"
+mkdir -p "${LOGS_DIR}"
 ########################### end user-adjustable ################################
 
 DATA=(
@@ -141,6 +157,7 @@ TRAINER=(
     trainer.total_epochs=${total_epochs}
 )
 
+echo "[run] tag=${RUN_TAG}  logging to ${LOG_FILE}"
 python3 -m verl.trainer.main_ppo \
     "${DATA[@]}" \
     "${MODEL[@]}" \
@@ -149,4 +166,16 @@ python3 -m verl.trainer.main_ppo \
     "${REF[@]}" \
     "${ONLINE_DRAFTER[@]}" \
     "${TRAINER[@]}" \
-    "$@"
+    "$@" 2>&1 | tee "${LOG_FILE}"
+
+
+# # Vanilla baseline
+# EAGLE3_ENABLE=False ONLINE_DRAFTER_ENABLE=False \
+#   bash examples/grpo_trainer/run_qwen3_1_7b_eagle3_online_drafter.sh
+
+# # Frozen EAGLE3
+# EAGLE3_ENABLE=True ONLINE_DRAFTER_ENABLE=False \
+#   bash examples/grpo_trainer/run_qwen3_1_7b_eagle3_online_drafter.sh
+
+# # Online drafter (defaults)
+# bash examples/grpo_trainer/run_qwen3_1_7b_eagle3_online_drafter.sh
