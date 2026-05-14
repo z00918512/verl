@@ -71,7 +71,7 @@ def default_compute_score(
         from . import prime_math
 
         res = prime_math.compute_score(solution_str, ground_truth)
-    elif data_source in ["codecontests", "apps", "codeforces", "taco"]:
+    elif data_source in ["codecontests", "apps", "codeforces", "taco", "open-r1/verifiable-coding-problems-python"]:
         # Use the passed sandbox_fusion_url if available
         if sandbox_fusion_url:
             from . import sandbox_fusion
