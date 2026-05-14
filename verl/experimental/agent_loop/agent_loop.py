@@ -1094,3 +1094,18 @@ class AgentLoopManager:
     async def stop_profile(self):
         """Stop profiling on all rollout replicas."""
         await asyncio.gather(*[replica.stop_profile() for replica in self.rollout_replicas])
+
+    @auto_await
+    async def get_spec_decode_step_metrics(self) -> dict:
+        """Collect per-step spec decode delta metrics from all replica servers and average."""
+        results = await asyncio.gather(*[
+            handle.get_spec_decode_step_metrics.remote()
+            for handle in self.server_handles
+        ])
+        results = [r for r in results if r]
+        if not results:
+            return {}
+        merged = {}
+        for key in results[0]:
+            merged[key] = sum(r[key] for r in results) / len(results)
+        return merged

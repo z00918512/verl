@@ -129,6 +129,8 @@ class vLLMHttpServer:
         self.nnodes = nnodes
         # model weights version, set by ServerAdapter when update weights.
         self.global_steps = None
+        # cumulative spec decode counter snapshot from previous step (for delta)
+        self._prev_spec_stats: dict = {}
 
         if self.rollout_mode != RolloutMode.HYBRID and self.config.load_format == "dummy":
             logger.warning(f"rollout mode is {self.rollout_mode}, load_format is dummy, set to auto")
@@ -669,6 +671,58 @@ class vLLMHttpServer:
     async def set_global_steps(self, global_steps: int):
         """Set the global steps of the model weights."""
         self.global_steps = global_steps
+
+    async def get_spec_decode_step_metrics(self) -> dict:
+        """Return per-step spec decode metrics as delta from the previous call.
+
+        Reads cumulative Prometheus counters from the PrometheusStatLogger and
+        diffs them against the snapshot taken at the end of the previous rollout.
+        Only the rank-0 node holds the engine, so non-rank-0 nodes return {}.
+        """
+        if self.node_rank != 0:
+            return {}
+        try:
+            from vllm.v1.metrics.loggers import PrometheusStatLogger
+            logger_mgr = getattr(self, "engine", None)
+            logger_mgr = getattr(logger_mgr, "logger_manager", None)
+            if logger_mgr is None:
+                return {}
+            prom_logger = next(
+                (sl for sl in logger_mgr.stat_loggers if isinstance(sl, PrometheusStatLogger)),
+                None,
+            )
+            if prom_logger is None or not prom_logger.spec_decoding_prom.spec_decoding_enabled:
+                return {}
+            curr = prom_logger.spec_decoding_prom.get_cumulative_stats()
+        except Exception:
+            return {}
+
+        prev = self._prev_spec_stats
+        self._prev_spec_stats = curr
+        if not prev:
+            return {}
+
+        d_drafts = curr["num_drafts"] - prev["num_drafts"]
+        d_draft_toks = curr["num_draft_tokens"] - prev["num_draft_tokens"]
+        d_accepted = curr["num_accepted_tokens"] - prev["num_accepted_tokens"]
+        if d_drafts <= 0:
+            return {}
+
+        step_metrics = {
+            "spec_decode/num_drafts": d_drafts,
+            "spec_decode/num_draft_tokens": d_draft_toks,
+            "spec_decode/num_accepted_tokens": d_accepted,
+            "spec_decode/mean_acceptance_length": 1.0 + d_accepted / d_drafts,
+        }
+        if d_draft_toks > 0:
+            step_metrics["spec_decode/acceptance_rate"] = d_accepted / d_draft_toks
+        per_pos_curr = curr.get("num_accepted_tokens_per_pos", [])
+        per_pos_prev = prev.get("num_accepted_tokens_per_pos", [])
+        for i in range(min(len(per_pos_curr), len(per_pos_prev))):
+            step_metrics[f"spec_decode/pos_{i}_acceptance_rate"] = (
+                (per_pos_curr[i] - per_pos_prev[i]) / d_drafts
+            )
+        return step_metrics
 
     async def wait_for_requests_to_drain(self):
         await self.engine.wait_for_requests_to_drain()

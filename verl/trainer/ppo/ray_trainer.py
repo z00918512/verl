@@ -1326,6 +1326,9 @@ class RayPPOTrainer:
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
+                        if hasattr(self.async_rollout_manager, "get_spec_decode_step_metrics"):
+                            metrics.update(self.async_rollout_manager.get_spec_decode_step_metrics())
+
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with marked_timer("gen_max", timing_raw, color="purple"):
                             gen_baseline_batch = deepcopy(gen_batch)
