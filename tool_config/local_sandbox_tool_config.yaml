@@ -1,0 +1,27 @@
+tools:
+  - class_name: "verl.tools.local_sandbox_tool.LocalSandboxTool"
+    config:
+      type: native
+      timeout: 10          # seconds per execution
+      sample_size: 2       # test cases shown to model per tool call
+      python_bin: "python3"
+      max_output_chars: 500
+
+    tool_schema:
+      type: "function"
+      function:
+        name: "code_interpreter"
+        description: >
+          Execute Python code and see the output against sample test cases.
+          Use this tool to iteratively test and debug your solution.
+          The tool runs your code with sample inputs and reports PASS/FAIL
+          for each case along with the actual vs expected output.
+        parameters:
+          type: "object"
+          properties:
+            code:
+              type: "string"
+              description: >
+                Complete Python program that reads from stdin and writes to stdout.
+                Must be a self-contained script (no magic variables or functions).
+          required: ["code"]
