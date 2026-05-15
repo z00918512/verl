@@ -83,7 +83,7 @@ def compute_score(
     # 1. Extract code
     code = _extract_last_code_block(solution_str)
     if code is None:
-        return 0.0, [{"error": "no_code_block_found"}]
+        return {"score": 0.0, "metadata": [{"error": "no_code_block_found"}]}
 
     # 2. Parse test cases
     if isinstance(ground_truth, dict):
@@ -92,12 +92,12 @@ def compute_score(
         try:
             test_cases = json.loads(ground_truth)
         except (json.JSONDecodeError, TypeError):
-            return 0.0, [{"error": "invalid_ground_truth"}]
+            return {"score": 0.0, "metadata": [{"error": "invalid_ground_truth"}]}
 
     inputs = test_cases.get("inputs", [])[:_MAX_TEST_CASES]
     outputs = test_cases.get("outputs", [])[:len(inputs)]
     if not inputs:
-        return 0.0, [{"error": "no_test_cases"}]
+        return {"score": 0.0, "metadata": [{"error": "no_test_cases"}]}
 
     # 3. Run against each test case
     passed = 0
@@ -118,4 +118,4 @@ def compute_score(
 
     score = passed / len(inputs)
     logger.info("local_sandbox_reward: %d/%d tests passed (score=%.3f)", passed, len(inputs), score)
-    return float(score), metadata
+    return {"score": float(score), "metadata": metadata}
