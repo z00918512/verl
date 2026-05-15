@@ -66,7 +66,7 @@ def compute_score(
     ground_truth: str,
     extra_info=None,
     **kwargs,
-) -> tuple[float, list[dict]]:
+) -> float:
     """Score the last code block in solution_str against all test cases.
 
     Args:
@@ -78,12 +78,12 @@ def compute_score(
         **kwargs: Additional keyword arguments (ignored).
 
     Returns:
-        (score, metadata_list) where score ∈ [0, 1].
+        score ∈ [0, 1], fraction of test cases passed.
     """
     # 1. Extract code
     code = _extract_last_code_block(solution_str)
     if code is None:
-        return {"score": 0.0, "metadata": [{"error": "no_code_block_found"}]}
+        return 0.0
 
     # 2. Parse test cases
     if isinstance(ground_truth, dict):
@@ -92,12 +92,12 @@ def compute_score(
         try:
             test_cases = json.loads(ground_truth)
         except (json.JSONDecodeError, TypeError):
-            return {"score": 0.0, "metadata": [{"error": "invalid_ground_truth"}]}
+            return 0.0
 
     inputs = test_cases.get("inputs", [])[:_MAX_TEST_CASES]
     outputs = test_cases.get("outputs", [])[:len(inputs)]
     if not inputs:
-        return {"score": 0.0, "metadata": [{"error": "no_test_cases"}]}
+        return 0.0
 
     # 3. Run against each test case
     passed = 0
@@ -118,4 +118,4 @@ def compute_score(
 
     score = passed / len(inputs)
     logger.info("local_sandbox_reward: %d/%d tests passed (score=%.3f)", passed, len(inputs), score)
-    return {"score": float(score), "metadata": metadata}
+    return float(score)
