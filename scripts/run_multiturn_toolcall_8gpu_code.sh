@@ -36,7 +36,8 @@ PPO_MICRO_BATCH_SIZE_PER_GPU=1
 MAX_PROMPT_LENGTH=1024
 MAX_RESPONSE_LENGTH=8192   # per-turn response cap; 4096 gave 80% clip ratio on untrained model
 MAX_TOOL_RESPONSE_LENGTH=512
-MAX_TURNS=8
+MAX_TURNS=4                # Qwen3-1.7B max_position_embeddings=40960; 8 turns × 8704 = 71168 > limit
+                           # 4 turns × 8704 + 1024 = 36864 fits safely
 AGENT_NUM_WORKERS=8
 GROUP_SIZE=5
 
@@ -112,7 +113,7 @@ ARGS=(
     actor_rollout_ref.rollout.agent.default_agent_loop=tool_agent
     actor_rollout_ref.rollout.multi_turn.enable=True
     actor_rollout_ref.rollout.multi_turn.max_assistant_turns=${MAX_TURNS}
-    actor_rollout_ref.rollout.multi_turn.max_user_turns=${MAX_TURNS}
+    actor_rollout_ref.rollout.multi_turn.max_user_turns=$((MAX_TURNS + 1))
     actor_rollout_ref.rollout.multi_turn.max_tool_response_length=${MAX_TOOL_RESPONSE_LENGTH}
     "actor_rollout_ref.rollout.multi_turn.tool_config_path=${VERL_DIR}/tool_config/local_sandbox_tool_config.yaml"
     actor_rollout_ref.rollout.multi_turn.format=hermes
