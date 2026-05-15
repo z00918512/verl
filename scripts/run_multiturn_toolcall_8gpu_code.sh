@@ -34,12 +34,15 @@ TRAIN_BATCH_SIZE=32        # quartered vs single-turn: multi-turn episodes are ~
 PPO_MINI_BATCH_SIZE=16
 PPO_MICRO_BATCH_SIZE_PER_GPU=1
 MAX_PROMPT_LENGTH=1024
-MAX_RESPONSE_LENGTH=4096   # per-turn response cap (not total episode length)
+MAX_RESPONSE_LENGTH=8192   # per-turn response cap; 4096 gave 80% clip ratio on untrained model
 MAX_TOOL_RESPONSE_LENGTH=512
 MAX_TURNS=8
 AGENT_NUM_WORKERS=8
 GROUP_SIZE=5
 
+# Full multi-turn context vLLM must handle: all turns concatenated at the last turn
+MAX_CONTEXT_LEN=$(( MAX_TURNS * (MAX_RESPONSE_LENGTH + MAX_TOOL_RESPONSE_LENGTH) + MAX_PROMPT_LENGTH ))
+# Actor/ref update token budget per GPU (dynamic batching handles single long sequences)
 MAX_TOKEN_LEN_PER_GPU=$((MAX_RESPONSE_LENGTH + MAX_PROMPT_LENGTH))
 
 NGPUS_PER_NODE=8
@@ -97,8 +100,8 @@ ARGS=(
     actor_rollout_ref.rollout.n=${GROUP_SIZE}
     actor_rollout_ref.rollout.temperature=1.0
     actor_rollout_ref.rollout.load_format=auto
-    actor_rollout_ref.rollout.max_num_batched_tokens=${MAX_TOKEN_LEN_PER_GPU}
-    actor_rollout_ref.rollout.max_model_len=${MAX_TOKEN_LEN_PER_GPU}
+    actor_rollout_ref.rollout.max_num_batched_tokens=${MAX_CONTEXT_LEN}
+    actor_rollout_ref.rollout.max_model_len=${MAX_CONTEXT_LEN}
     actor_rollout_ref.rollout.disable_log_stats=False
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${PPO_MICRO_BATCH_SIZE_PER_GPU}
