@@ -29,7 +29,8 @@ MODEL_PATH="${HOME_DIR}/models/Qwen3-1.7B"
 EAGLE3_MODEL_PATH="${HOME_DIR}/models/Qwen3-1.7B_eagle3"
 NUM_SPECULATIVE_TOKENS=3
 
-TRAIN_BATCH_SIZE=64        # halved vs single-turn: each episode is ~4-8x longer
+TRAIN_BATCH_SIZE=32        # quartered vs single-turn: multi-turn episodes are ~3x longer in
+                           # total tokens, DataProto batch exhausts CPU RAM at 64
 PPO_MINI_BATCH_SIZE=16
 PPO_MICRO_BATCH_SIZE_PER_GPU=1
 MAX_PROMPT_LENGTH=1024
