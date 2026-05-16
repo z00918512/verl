@@ -29,9 +29,9 @@ MODEL_PATH="${HOME_DIR}/models/Qwen3-1.7B"
 EAGLE3_MODEL_PATH="${HOME_DIR}/models/Qwen3-1.7B_eagle3"
 NUM_SPECULATIVE_TOKENS=3
 
-TRAIN_BATCH_SIZE=32        # quartered vs single-turn: multi-turn episodes are ~3x longer in
-                           # total tokens, DataProto batch exhausts CPU RAM at 64
-PPO_MINI_BATCH_SIZE=16
+TRAIN_BATCH_SIZE=16        # 8× smaller than single-turn: multi-turn ~7k tok/episode vs ~13k;
+                           # FSDP actor update OOMs at 32 (NCCL all-gather timeout symptom)
+PPO_MINI_BATCH_SIZE=8
 PPO_MICRO_BATCH_SIZE_PER_GPU=1
 MAX_PROMPT_LENGTH=1024
 MAX_RESPONSE_LENGTH=8192   # per-turn response cap; 4096 gave 80% clip ratio on untrained model
