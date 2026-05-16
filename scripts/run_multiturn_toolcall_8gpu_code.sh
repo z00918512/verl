@@ -23,7 +23,7 @@
 set -xeuo pipefail
 
 HOME_DIR="/home/ubuntu/z00918512"
-VERL_DIR="${HOME_DIR}/verl"
+VERL_DIR="${HOME_DIR}/verl"di
 
 MODEL_PATH="${HOME_DIR}/models/Qwen3-1.7B"
 EAGLE3_MODEL_PATH="${HOME_DIR}/models/Qwen3-1.7B_eagle3"
@@ -82,8 +82,9 @@ ARGS=(
     actor_rollout_ref.model.enable_gradient_checkpointing=True
 
     actor_rollout_ref.actor.optim.lr=1e-6
-    actor_rollout_ref.actor.use_dynamic_bsz=True
+    actor_rollout_ref.actor.use_dynamic_bsz=False
     actor_rollout_ref.actor.ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE}
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${PPO_MICRO_BATCH_SIZE_PER_GPU}
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${MAX_TOKEN_LEN_PER_GPU}
     actor_rollout_ref.actor.use_kl_loss=True
     actor_rollout_ref.actor.kl_loss_coef=0.001
